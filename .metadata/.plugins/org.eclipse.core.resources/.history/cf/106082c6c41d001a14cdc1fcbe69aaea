@@ -1,0 +1,165 @@
+/*
+ * Mini_Project_1.c
+ *
+ *  Created on: ??þ/??þ/????
+ *      Author: Ahmed Mohamed Elshorbagy
+ */
+
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+
+unsigned char seconds  = 0;
+unsigned char minuites = 0;
+unsigned char hours    = 0;
+
+void TIMER1_CTC_INIT(void)
+{
+	/* Configure the timer mode
+	 * 1. Non PWM mode FOC1A = 1 & FOC1B = 1
+	 * 2. CTC Mode WGM10 = 0 & WGM11 = 0 & WGM12 = 1 & WGM13 = 0
+	 * 3. clock = CPU clock/1024 CS10 = 1 CS11 = 0 CS12 = 1
+	 */
+	TCCR1A = (1<<FOC1A) | (1<<FOC1B) ;
+	TCCR1B = (1<<WGM12) | (1<<CS10) | (1<<CS12);
+	/*
+	 * Initial Value = 0
+	 * Compare Value = 994 not 1000 because in while(1) we consume 6 msec
+	 * means flag high every compare match every 994 count
+	 */
+	TCNT1 = 0;    // Initial Value
+	OCR1A = 994;  // Compare Value
+	/* Configure timer interrupt
+	 * 1. Enable Timer1 Compare match interrupt
+	 * 2. Enable Global Interrupt
+	 */
+	TIMSK |= (1<<OCIE1A); // Timer1 Compare match interrupt
+	SREG  |= (1<<7);      // Global Interrupt
+}
+
+void INT0_INIT(void)
+{
+	/* Make INT0 Pin internal pull up */
+	DDRD  &= ~(1<<PD2);
+	PORTD |=  (1<<PD2);
+
+	/* Configure interrupt 0
+	 * 1. Enable interrupt 0 from GICR
+	 * 2. Enable Falling edge
+	 * 3. Enable Global Interrupt
+	 */
+	GICR  |=  (1<<INT0); //interrupt 0 enable
+	MCUCR |=  (1<<ISC01); // Falling edge mode ISC01 = 1 & ISC00 = 0
+	SREG  |=  (1<<7); // Global Interrupt
+}
+
+void INT1_INIT(void)
+{
+	DDRD  &= ~(1<<PD3);
+
+	/* Configure interrupt 1
+	 * 1. Enable interrupt 1 from GICR
+	 * 2. Enable Global Interrupt
+	 */
+	GICR  |=  (1<<INT1); //interrupt 1 enable
+	MCUCR |=  (1<<ISC11) | (1<<ISC10); // Rising edge mode ISC11 = 1 & ISC10 = 1
+	SREG  |=  (1<<7); // Global Interrupt
+}
+
+void INT2_INIT(void)
+{
+	/* Make INT1 Pin internal pull up */
+	DDRB  &= ~(1<<PD2);
+	PORTB |=  (1<<PD2);
+
+	/* Configure interrupt 2
+	 * 1. Enable interrupt 2 from GICR
+	 * 2. Enable Falling edge mode >> ISC2 = 0
+	 * 3. Enable Global Interrupt
+	 */
+	GICR   |=  (1<<INT2); //interrupt 0 enable
+	SREG   |=  (1<<7); // Global Interrupt
+}
+
+ISR(TIMER1_COMPA_vect)
+{
+	seconds++;
+	if(seconds == 60)
+	{
+		seconds = 0;
+		minuites++;
+	}
+	if(minuites == 60)
+	{
+		minuites = 0;
+		hours++;
+	}
+	if(hours > 23)
+	{
+		hours = 0;
+	}
+}
+
+ISR(INT0_vect)
+{
+	seconds = 0;
+	minuites = 0;
+	hours = 0;
+}
+
+ISR(INT1_vect)
+{
+	/* this ISR is to stop the clock by switch timer1 ctc mode interrupt OFF */
+	TIMSK &= ~(1<<OCIE1A); // Timer1 Compare match interrupt OFF
+}
+
+ISR(INT2_vect)
+{
+	/* this ISR is to resume the clock by switch timer1 ctc mode interrupt ON */
+	TIMSK |= (1<<OCIE1A); // Timer1 Compare match interrupt ON
+}
+
+int main(void)
+{
+	DDRC   |= 0x0F; // Pin0 : Pin3 is output
+	DDRA   |= 0x7F; // Pin0 : Pin6 is output
+	PORTA  |= 0x7F; // All pins are high in the beginning
+	INT0_INIT();
+	INT1_INIT();
+	INT2_INIT();
+	TIMER1_CTC_INIT();
+
+	while(1)
+	{
+		/* Note That
+		 * if seconds = 27
+		 * then 27 % 10 = 7 >> Reminder
+		 * and  27 / 10 = 2 not 2.7 >> (integer / integer = integer)
+		 */
+		PORTA = 0x01; // Turn on 1st 7-segment
+		PORTC  = (PORTC & 0xF0) | ((seconds % 10) & 0x0F); // Show Seconds in 1st 7-segment
+		_delay_ms(1);
+
+		PORTA = 0x02; // Turn on 2nd 7-segment
+		PORTC  = (PORTC & 0xF0) | ((seconds / 10) & 0x0F); // Show Seconds in 2nd 7-segment
+		_delay_ms(1);
+
+		PORTA = 0x04; // Turn on 3rd 7-segment
+		PORTC  = (PORTC & 0xF0) | ((minuites % 10) & 0x0F); // Show minuites in 3rd 7-segment
+		_delay_ms(1);
+
+		PORTA = 0x08; // Turn on 4th 7-segment
+		PORTC  = (PORTC & 0xF0) | ((minuites / 10) & 0x0F); // Show minuites in 4th 7-segment
+		_delay_ms(1);
+
+		PORTA = 0x10; // Turn on 5th 7-segment
+		PORTC  = (PORTC & 0xF0) | ((hours % 10) & 0x0F); // Show hours in 5th 7-segment
+		_delay_ms(1);
+
+		PORTA = 0x20; // Turn on 6th 7-segment
+		PORTC  = (PORTC & 0xF0) | ((hours / 10) & 0x0F); // Show hours in 6th 7-segment
+		_delay_ms(1);
+	}
+	return 0;
+}
